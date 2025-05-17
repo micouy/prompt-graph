@@ -17,5 +17,5 @@ export async function processPrompt(prompt: string): Promise<string> {
 
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  return "heyy ".repeat(100);
+  return "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua";
 }

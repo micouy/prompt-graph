@@ -13,10 +13,21 @@ import Handlebars from "handlebars";
 import Markdown from "react-markdown";
 import Debug from "./Debug";
 
+interface Comment {
+  id: string;
+  text: string;
+  selectedText: string;
+}
+
+interface PromptVersion {
+  prompt: string;
+  comments: Comment[];
+}
+
 export type PromptNodeData = {
   output: string;
   prompt: string;
-  promptVersions: string[];
+  promptVersions: PromptVersion[];
   processingPromise: Promise<string> | null;
   onChange: (newData: Partial<PromptNodeData>) => void;
 };
@@ -78,28 +89,107 @@ const PromptInput = memo(({ value, onChange }: PromptInputProps) => (
 
 PromptInput.displayName = "PromptInput";
 
-interface OutputDisplayProps {
+interface OutputSectionProps {
   renderedPrompt: string;
   output: string;
   isLoading: boolean;
+  comments: Comment[];
+  onAddComment: (comment: Omit<Comment, "id">) => void;
+  onRemoveComment: (commentId: string) => void;
 }
 
-const OutputDisplay = memo(
-  ({ renderedPrompt, output, isLoading }: OutputDisplayProps) => (
-    <>
-      <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
-      <div className="select-text cursor-text">
-        <Markdown>{renderedPrompt}</Markdown>
-      </div>
-      <p className="text-xs text-gray-500 mt-3">Output</p>
-      <div className="select-text cursor-text">
-        <Markdown>{isLoading ? "Loading..." : output}</Markdown>
-      </div>
-    </>
-  )
+const OutputSection = memo(
+  ({
+    renderedPrompt,
+    output,
+    isLoading,
+    comments,
+    onAddComment,
+    onRemoveComment,
+  }: OutputSectionProps) => {
+    const [newComment, setNewComment] = useState("");
+    const [selectedText, setSelectedText] = useState("");
+
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (selection && selection.toString().trim()) {
+        setSelectedText(selection.toString());
+      } else {
+        setSelectedText("");
+      }
+    };
+
+    const handleAddComment = () => {
+      if (newComment.trim() && selectedText) {
+        onAddComment({
+          text: newComment,
+          selectedText,
+        });
+        setNewComment("");
+        setSelectedText("");
+      }
+    };
+
+    return (
+      <>
+        <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
+        <div className="select-text cursor-text">
+          <Markdown>{renderedPrompt}</Markdown>
+        </div>
+        <p className="text-xs text-gray-500 mt-3">Output</p>
+        <div
+          className="select-text cursor-text"
+          onMouseUp={handleSelection}
+          onKeyUp={handleSelection}
+        >
+          <Markdown>{isLoading ? "Loading..." : output}</Markdown>
+        </div>
+
+        {comments.length > 0 && (
+          <div className="mt-3">
+            <p className="text-xs text-gray-500">Comments</p>
+            {comments.map((comment) => (
+              <div key={comment.id} className="mt-1 p-2 bg-gray-50 rounded">
+                <div className="flex justify-between items-start">
+                  <div className="text-sm text-gray-600 mb-1">
+                    Selected text: &ldquo;{comment.selectedText}&rdquo;
+                  </div>
+                  <button
+                    onClick={() => onRemoveComment(comment.id)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div>{comment.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selectedText && (
+          <div className="mt-3 flex gap-2">
+            <textarea
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              className="flex-1 p-1 border rounded"
+              rows={2}
+              placeholder="Add a comment..."
+            />
+            <button
+              onClick={handleAddComment}
+              className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+            >
+              Add
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
 );
 
-OutputDisplay.displayName = "OutputDisplay";
+OutputSection.displayName = "OutputSection";
 
 const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
   const connections = useNodeConnections({
@@ -122,13 +212,20 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
   useEffect(() => {
     if (debouncedPrompt === "") return;
 
-    if (promptVersions.includes(debouncedPrompt)) {
-      setSelectedVersionIx(promptVersions.indexOf(debouncedPrompt));
+    const existingVersionIndex = promptVersions.findIndex(
+      (version) => version.prompt === debouncedPrompt
+    );
+
+    if (existingVersionIndex !== -1) {
+      setSelectedVersionIx(existingVersionIndex);
       return;
     }
 
     onChange({
-      promptVersions: [...promptVersions, debouncedPrompt],
+      promptVersions: [
+        ...promptVersions,
+        { prompt: debouncedPrompt, comments: [] },
+      ],
     });
   }, [debouncedPrompt, promptVersions, onChange]);
 
@@ -137,7 +234,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     if (promptVersions.length === 0) return;
 
     onChange({
-      prompt: promptVersions[selectedVersionIx],
+      prompt: promptVersions[selectedVersionIx].prompt,
     });
   }, [selectedVersionIx, promptVersions, onChange]);
 
@@ -166,6 +263,29 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     });
   }, [debouncedPrompt, onChange, renderedPrompt]);
 
+  const handleAddComment = (comment: Omit<Comment, "id">) => {
+    const newVersions = [...promptVersions];
+    newVersions[selectedVersionIx] = {
+      ...newVersions[selectedVersionIx],
+      comments: [
+        ...newVersions[selectedVersionIx].comments,
+        { ...comment, id: crypto.randomUUID() },
+      ],
+    };
+    onChange({ promptVersions: newVersions });
+  };
+
+  const handleRemoveComment = (commentId: string) => {
+    const newVersions = [...promptVersions];
+    newVersions[selectedVersionIx] = {
+      ...newVersions[selectedVersionIx],
+      comments: newVersions[selectedVersionIx].comments.filter(
+        (comment) => comment.id !== commentId
+      ),
+    };
+    onChange({ promptVersions: newVersions });
+  };
+
   return (
     <div
       className="rounded-lg bg-lime-100 w-[20rem]"
@@ -192,7 +312,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
           totalVersions={promptVersions.length}
           onVersionChange={(newIndex) => {
             setSelectedVersionIx(newIndex);
-            overrideDebouncedPrompt(promptVersions[newIndex]);
+            overrideDebouncedPrompt(promptVersions[newIndex].prompt);
           }}
         />
 
@@ -201,10 +321,13 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
           onChange={(value) => onChange({ prompt: value })}
         />
 
-        <OutputDisplay
+        <OutputSection
           renderedPrompt={renderedPrompt}
           output={data.output}
           isLoading={!!data.processingPromise}
+          comments={promptVersions[selectedVersionIx]?.comments ?? []}
+          onAddComment={handleAddComment}
+          onRemoveComment={handleRemoveComment}
         />
       </div>
 
