@@ -26,25 +26,101 @@ interface PromptNodeProps {
   isConnectable: boolean;
 }
 
+interface VersionControlsProps {
+  selectedVersionIx: number;
+  totalVersions: number;
+  onVersionChange: (newIndex: number) => void;
+}
+
+const VersionControls = memo(
+  ({
+    selectedVersionIx,
+    totalVersions,
+    onVersionChange,
+  }: VersionControlsProps) => (
+    <div className="flex flex-row items-baseline gap-2">
+      <button
+        className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
+        disabled={selectedVersionIx === 0}
+        onClick={() => onVersionChange(selectedVersionIx - 1)}
+      >
+        &lt;
+      </button>
+
+      <p className="text-xs text-gray-500 w-fit">v{selectedVersionIx + 1}</p>
+
+      <button
+        className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
+        disabled={selectedVersionIx >= totalVersions - 1}
+        onClick={() => onVersionChange(selectedVersionIx + 1)}
+      >
+        &gt;
+      </button>
+    </div>
+  )
+);
+
+VersionControls.displayName = "VersionControls";
+
+interface PromptInputProps {
+  value: string;
+  onChange: (value: string) => void;
+}
+
+const PromptInput = memo(({ value, onChange }: PromptInputProps) => (
+  <textarea
+    className="w-full p-1 border rounded"
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    rows={4}
+  />
+));
+
+PromptInput.displayName = "PromptInput";
+
+interface OutputDisplayProps {
+  renderedPrompt: string;
+  output: string;
+  isLoading: boolean;
+}
+
+const OutputDisplay = memo(
+  ({ renderedPrompt, output, isLoading }: OutputDisplayProps) => (
+    <>
+      <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
+      <div className="select-text cursor-text">
+        <Markdown>{renderedPrompt}</Markdown>
+      </div>
+      <p className="text-xs text-gray-500 mt-3">Output</p>
+      <div className="select-text cursor-text">
+        <Markdown>{isLoading ? "Loading..." : output}</Markdown>
+      </div>
+    </>
+  )
+);
+
+OutputDisplay.displayName = "OutputDisplay";
+
 const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
   const connections = useNodeConnections({
     handleType: "target",
   });
 
   const [selectedVersionIx, setSelectedVersionIx] = useState<number>(0);
-
-  const { onChange, promptVersions } = data;
+  const { onChange, promptVersions, prompt } = data;
 
   const nodesData = useNodesData<Node<DataNodeData | PromptNodeData>>(
     connections.map((connection) => connection.source)
   );
 
-  const debouncedPrompt = useDebounce(data.prompt, 1000);
+  const {
+    debouncedValue: debouncedPrompt,
+    overrideDebouncedValue: overrideDebouncedPrompt,
+  } = useDebounce(prompt, 1000);
 
+  // Handle prompt version changes
   useEffect(() => {
-    if (debouncedPrompt === "") {
-      return;
-    }
+    if (debouncedPrompt === "") return;
 
     if (promptVersions.includes(debouncedPrompt)) {
       setSelectedVersionIx(promptVersions.indexOf(debouncedPrompt));
@@ -56,27 +132,24 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     });
   }, [debouncedPrompt, promptVersions, onChange]);
 
-  const renderedPrompt = useMemo(() => {
-    const template = Handlebars.compile(debouncedPrompt);
-    return template({ input: nodesData[0]?.data.output ?? undefined });
-  }, [debouncedPrompt, nodesData]);
-
+  // Update prompt when version changes
   useEffect(() => {
-    if (promptVersions.length === 0) {
-      return;
-    }
+    if (promptVersions.length === 0) return;
 
     onChange({
       prompt: promptVersions[selectedVersionIx],
     });
   }, [selectedVersionIx, promptVersions, onChange]);
 
-  useEffect(() => {
-    console.log("SPAWNING");
+  // Render the prompt with input data
+  const renderedPrompt = useMemo(() => {
+    const template = Handlebars.compile(debouncedPrompt);
+    return template({ input: nodesData[0]?.data.output ?? undefined });
+  }, [debouncedPrompt, nodesData]);
 
-    if (renderedPrompt === "") {
-      return;
-    }
+  // Process the prompt
+  useEffect(() => {
+    if (renderedPrompt === "") return;
 
     const processingPromise = actions
       .processPrompt(renderedPrompt)
@@ -85,7 +158,6 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
           output: result,
           processingPromise: null,
         });
-
         return result;
       });
 
@@ -114,45 +186,28 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
 
       <div className="p-2">
         <p className="text-lg font-bold text-zinc-700">Prompt</p>
-        <div className="flex flex-row items-baseline gap-2">
-          <button
-            className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
-            disabled={selectedVersionIx === 0}
-            onClick={() => setSelectedVersionIx(selectedVersionIx - 1)}
-          >
-            &lt;
-          </button>
 
-          <p className="text-xs text-gray-500 w-fit">
-            v{selectedVersionIx + 1}
-          </p>
-
-          <button
-            className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
-            disabled={selectedVersionIx >= promptVersions.length - 1}
-            onClick={() => setSelectedVersionIx(selectedVersionIx + 1)}
-          >
-            &gt;
-          </button>
-        </div>
-
-        <textarea
-          className="w-full p-1 border rounded"
-          value={data.prompt}
-          onChange={(e) => onChange({ prompt: e.target.value })}
-          rows={4}
+        <VersionControls
+          selectedVersionIx={selectedVersionIx}
+          totalVersions={promptVersions.length}
+          onVersionChange={(newIndex) => {
+            setSelectedVersionIx(newIndex);
+            overrideDebouncedPrompt(promptVersions[newIndex]);
+          }}
         />
-        <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
-        <div className="select-text cursor-text">
-          <Markdown>{renderedPrompt}</Markdown>
-        </div>
-        <p className="text-xs text-gray-500 mt-3">Output</p>
-        <div className="select-text cursor-text">
-          <Markdown>
-            {data.processingPromise ? "Loading..." : data.output}
-          </Markdown>
-        </div>
+
+        <PromptInput
+          value={prompt}
+          onChange={(value) => onChange({ prompt: value })}
+        />
+
+        <OutputDisplay
+          renderedPrompt={renderedPrompt}
+          output={data.output}
+          isLoading={!!data.processingPromise}
+        />
       </div>
+
       <Handle
         type="source"
         position={Position.Right}

@@ -18,7 +18,15 @@ const useDebounce = (value: string, delay: number) => {
     };
   }, [value, delay]);
 
-  return debouncedValue;
+  const overrideDebouncedValue = (value: string) => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    setDebouncedValue(value);
+  };
+
+  return { debouncedValue, overrideDebouncedValue };
 };
 
 export default useDebounce;
