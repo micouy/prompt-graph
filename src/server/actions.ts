@@ -8,12 +8,14 @@ const client = new OpenAI({
 });
 
 export async function processPrompt(prompt: string): Promise<string> {
+  // const response = await client.completions.create({
+  //   model: "azure/gpt-4.1",
+  //   prompt: prompt,
+  // });
+
+  // return response.choices[0].text;
+
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  const response = await client.completions.create({
-    model: "azure/gpt-4.1",
-    prompt: prompt,
-  });
-
-  return response.choices[0].text;
+  return "heyy ".repeat(100);
 }

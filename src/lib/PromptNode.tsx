@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo } from "react";
+import React, { memo, useEffect, useMemo, useState } from "react";
 import {
   Handle,
   Position,
@@ -7,17 +7,16 @@ import {
   Node,
 } from "@xyflow/react";
 import * as actions from "@/server/actions";
-import Debug from "./Debug";
 import { DataNodeData } from "./DataNode";
 import useDebounce from "./useDebounce";
 import Handlebars from "handlebars";
 import Markdown from "react-markdown";
+import Debug from "./Debug";
 
-type PromptNodeData = {
-  title: string;
-  prompt: string;
+export type PromptNodeData = {
   output: string;
-  lastProcessedPrompt: string | null;
+  prompt: string;
+  promptVersions: string[];
   processingPromise: Promise<string> | null;
   onChange: (newData: Partial<PromptNodeData>) => void;
 };
@@ -32,7 +31,9 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     handleType: "target",
   });
 
-  const { onChange } = data;
+  const [selectedVersionIx, setSelectedVersionIx] = useState<number>(0);
+
+  const { onChange, promptVersions } = data;
 
   const nodesData = useNodesData<Node<DataNodeData | PromptNodeData>>(
     connections.map((connection) => connection.source)
@@ -40,10 +41,35 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
 
   const debouncedPrompt = useDebounce(data.prompt, 1000);
 
+  useEffect(() => {
+    if (debouncedPrompt === "") {
+      return;
+    }
+
+    if (promptVersions.includes(debouncedPrompt)) {
+      setSelectedVersionIx(promptVersions.indexOf(debouncedPrompt));
+      return;
+    }
+
+    onChange({
+      promptVersions: [...promptVersions, debouncedPrompt],
+    });
+  }, [debouncedPrompt, promptVersions, onChange]);
+
   const renderedPrompt = useMemo(() => {
     const template = Handlebars.compile(debouncedPrompt);
     return template({ input: nodesData[0]?.data.output ?? undefined });
   }, [debouncedPrompt, nodesData]);
+
+  useEffect(() => {
+    if (promptVersions.length === 0) {
+      return;
+    }
+
+    onChange({
+      prompt: promptVersions[selectedVersionIx],
+    });
+  }, [selectedVersionIx, promptVersions, onChange]);
 
   useEffect(() => {
     console.log("SPAWNING");
@@ -57,7 +83,6 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
       .then((result) => {
         onChange({
           output: result,
-          lastProcessedPrompt: debouncedPrompt,
           processingPromise: null,
         });
 
@@ -77,7 +102,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
         e.preventDefault();
       }}
     >
-      <div className="h-4 w-full bg-gray-200 hover:bg-gray-300 cursor-grab active:cursor-grabbing rounded-t" />
+      <div className="h-4 w-full bg-gray-200 hover:bg-gray-300 cursor-grab active:cursor-grabbing rounded-t drag-handle__custom" />
       <Handle
         type="target"
         position={Position.Left}
@@ -85,22 +110,48 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
         style={{ width: "1rem", height: "1rem" }}
       />
 
+      <Debug data={{ selectedVersionIx, promptVersions }} />
+
       <div className="p-2">
         <p className="text-lg font-bold text-zinc-700">Prompt</p>
+        <div className="flex flex-row items-baseline gap-2">
+          <button
+            className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
+            disabled={selectedVersionIx === 0}
+            onClick={() => setSelectedVersionIx(selectedVersionIx - 1)}
+          >
+            &lt;
+          </button>
 
-        <div className="font-bold mb-2">{data.title}</div>
+          <p className="text-xs text-gray-500 w-fit">
+            v{selectedVersionIx + 1}
+          </p>
+
+          <button
+            className="bg-gray-200 px-2 py-1 rounded-md text-xs w-fit"
+            disabled={selectedVersionIx >= promptVersions.length - 1}
+            onClick={() => setSelectedVersionIx(selectedVersionIx + 1)}
+          >
+            &gt;
+          </button>
+        </div>
+
         <textarea
-          className="nodrag w-full p-1 border rounded"
+          className="w-full p-1 border rounded"
           value={data.prompt}
           onChange={(e) => onChange({ prompt: e.target.value })}
           rows={4}
         />
         <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
-        <Markdown>{renderedPrompt}</Markdown>
+        <div className="select-text cursor-text">
+          <Markdown>{renderedPrompt}</Markdown>
+        </div>
         <p className="text-xs text-gray-500 mt-3">Output</p>
-        <Markdown>
-          {data.processingPromise ? "Loading..." : data.output}
-        </Markdown>
+        <div className="select-text cursor-text">
+          <Markdown>
+            {data.processingPromise ? "Loading..." : data.output}
+          </Markdown>
+        </div>
       </div>
       <Handle
         type="source"

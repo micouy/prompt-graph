@@ -21,14 +21,14 @@ const DataNode = memo(({ data, isConnectable }: DataNodeProps) => {
         e.preventDefault();
       }}
     >
-      <div className="h-4 w-full bg-gray-200 hover:bg-gray-300 cursor-grab active:cursor-grabbing rounded-t" />
+      <div className="h-4 w-full bg-gray-200 hover:bg-gray-300 cursor-grab active:cursor-grabbing rounded-t drag-handle__custom" />
 
       <div className="p-2">
         <p className="text-lg font-bold text-zinc-700">Data</p>
 
         <div className="font-bold mb-2">{data.title}</div>
         <textarea
-          className="nodrag w-full p-1 border rounded"
+          className="w-full p-1 border rounded"
           value={data.output}
           onChange={(e) => data.onChange({ output: e.target.value })}
           rows={4}
