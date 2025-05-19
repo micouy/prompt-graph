@@ -150,6 +150,8 @@ const AddNodeOnEdgeDrop = () => {
         onDoubleClick={onDoubleClick}
         nodeTypes={nodeTypes}
         zoomOnDoubleClick={false}
+        zoomOnPinch={true}
+        panOnScroll={true}
         fitView
         fitViewOptions={{ padding: 2 }}
         nodeOrigin={nodeOrigin}

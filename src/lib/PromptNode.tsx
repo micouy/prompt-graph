@@ -1,17 +1,17 @@
-import React, { memo, useEffect, useMemo, useState } from "react";
+import * as actions from "@/server/actions";
 import {
   Handle,
+  Node,
   Position,
   useNodeConnections,
   useNodesData,
-  Node,
 } from "@xyflow/react";
-import * as actions from "@/server/actions";
+import Handlebars from "handlebars";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import * as uuid from "uuid";
 import { DataNodeData } from "./DataNode";
 import useDebounce from "./useDebounce";
-import Handlebars from "handlebars";
-import Markdown from "react-markdown";
-import Debug from "./Debug";
 
 interface Comment {
   id: string;
@@ -68,7 +68,7 @@ const VersionControls = memo(
         &gt;
       </button>
     </div>
-  )
+  ),
 );
 
 VersionControls.displayName = "VersionControls";
@@ -78,14 +78,32 @@ interface PromptInputProps {
   onChange: (value: string) => void;
 }
 
-const PromptInput = memo(({ value, onChange }: PromptInputProps) => (
-  <textarea
-    className="w-full p-1 border rounded"
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    rows={4}
-  />
-));
+const PromptInput = memo(({ value, onChange }: PromptInputProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setTimeout(() => {
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.style.height = "auto";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+    }, 100);
+  }, [value]);
+
+  return (
+    <textarea
+      className="w-full p-1 border rounded resize-none"
+      value={value}
+      onChange={(e) => {
+        e.target.style.height = "auto";
+        e.target.style.height = `${e.target.scrollHeight}px`;
+        onChange(e.target.value);
+      }}
+      rows={4}
+    />
+  );
+});
 
 PromptInput.displayName = "PromptInput";
 
@@ -96,6 +114,7 @@ interface OutputSectionProps {
   comments: Comment[];
   onAddComment: (comment: Omit<Comment, "id">) => void;
   onRemoveComment: (commentId: string) => void;
+  onOptimize: () => void;
 }
 
 const OutputSection = memo(
@@ -106,6 +125,7 @@ const OutputSection = memo(
     comments,
     onAddComment,
     onRemoveComment,
+    onOptimize,
   }: OutputSectionProps) => {
     const [newComment, setNewComment] = useState("");
     const [selectedText, setSelectedText] = useState("");
@@ -133,12 +153,12 @@ const OutputSection = memo(
     return (
       <>
         <p className="text-xs text-gray-500 mt-3">Rendered Prompt</p>
-        <div className="select-text cursor-text">
+        <div className="select-text cursor-text max-h-[10rem] overflow-y-auto whitespace-pre-wrap bg-lime-50 rounded-md p-2">
           <Markdown>{renderedPrompt}</Markdown>
         </div>
         <p className="text-xs text-gray-500 mt-3">Output</p>
         <div
-          className="select-text cursor-text"
+          className="select-text cursor-text max-h-[40rem] overflow-y-auto overflow-x-scroll bg-lime-50 rounded-md p-2"
           onMouseUp={handleSelection}
           onKeyUp={handleSelection}
         >
@@ -147,7 +167,15 @@ const OutputSection = memo(
 
         {comments.length > 0 && (
           <div className="mt-3">
-            <p className="text-xs text-gray-500">Comments</p>
+            <div className="flex justify-between items-center mb-2">
+              <p className="text-xs text-gray-500">Comments</p>
+              <button
+                onClick={onOptimize}
+                className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Optimize
+              </button>
+            </div>
             {comments.map((comment) => (
               <div key={comment.id} className="mt-1 p-2 bg-gray-50 rounded">
                 <div className="flex justify-between items-start">
@@ -186,7 +214,7 @@ const OutputSection = memo(
         )}
       </>
     );
-  }
+  },
 );
 
 OutputSection.displayName = "OutputSection";
@@ -200,7 +228,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
   const { onChange, promptVersions, prompt } = data;
 
   const nodesData = useNodesData<Node<DataNodeData | PromptNodeData>>(
-    connections.map((connection) => connection.source)
+    connections.map((connection) => connection.source),
   );
 
   const {
@@ -213,7 +241,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     if (debouncedPrompt === "") return;
 
     const existingVersionIndex = promptVersions.findIndex(
-      (version) => version.prompt === debouncedPrompt
+      (version) => version.prompt === debouncedPrompt,
     );
 
     if (existingVersionIndex !== -1) {
@@ -228,15 +256,6 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
       ],
     });
   }, [debouncedPrompt, promptVersions, onChange]);
-
-  // Update prompt when version changes
-  useEffect(() => {
-    if (promptVersions.length === 0) return;
-
-    onChange({
-      prompt: promptVersions[selectedVersionIx].prompt,
-    });
-  }, [selectedVersionIx, promptVersions, onChange]);
 
   // Render the prompt with input data
   const renderedPrompt = useMemo(() => {
@@ -269,7 +288,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
       ...newVersions[selectedVersionIx],
       comments: [
         ...newVersions[selectedVersionIx].comments,
-        { ...comment, id: crypto.randomUUID() },
+        { ...comment, id: uuid.v4() },
       ],
     };
     onChange({ promptVersions: newVersions });
@@ -280,15 +299,47 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
     newVersions[selectedVersionIx] = {
       ...newVersions[selectedVersionIx],
       comments: newVersions[selectedVersionIx].comments.filter(
-        (comment) => comment.id !== commentId
+        (comment) => comment.id !== commentId,
       ),
     };
     onChange({ promptVersions: newVersions });
   };
 
+  const handleOptimize = async () => {
+    const currentVersion = promptVersions[selectedVersionIx];
+    const optimizationPrompt = `This is the current prompt: "${
+      currentVersion.prompt
+    }". It produced this output: "${data.output}" based on this context: "${
+      nodesData[0]?.data.output ?? ""
+    }". The user left these comments: ${currentVersion.comments
+      .map((c) => `- Selected text: "${c.selectedText}", Comment: "${c.text}"`)
+      .join(
+        "\n",
+      )}. Please improve the prompt accordingly. Respond with the new prompt only, no other text.`;
+
+    const optimizedPrompt = await actions.processPrompt(optimizationPrompt);
+
+    const newVersions = [
+      ...promptVersions,
+      { prompt: optimizedPrompt, comments: [] },
+    ];
+
+    console.log({
+      optimizedPrompt,
+      newVersions,
+    });
+
+    onChange({
+      promptVersions: newVersions,
+      prompt: optimizedPrompt,
+    });
+    setSelectedVersionIx(newVersions.length - 1);
+    overrideDebouncedPrompt(optimizedPrompt);
+  };
+
   return (
     <div
-      className="rounded-lg bg-lime-100 w-[20rem]"
+      className="nowheel rounded-lg bg-lime-100 w-[40rem]"
       onDoubleClick={(e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -302,8 +353,6 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
         style={{ width: "1rem", height: "1rem" }}
       />
 
-      <Debug data={{ selectedVersionIx, promptVersions }} />
-
       <div className="p-2">
         <p className="text-lg font-bold text-zinc-700">Prompt</p>
 
@@ -312,6 +361,9 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
           totalVersions={promptVersions.length}
           onVersionChange={(newIndex) => {
             setSelectedVersionIx(newIndex);
+            onChange({
+              prompt: promptVersions[newIndex].prompt,
+            });
             overrideDebouncedPrompt(promptVersions[newIndex].prompt);
           }}
         />
@@ -328,6 +380,7 @@ const PromptNode = memo(({ data, isConnectable }: PromptNodeProps) => {
           comments={promptVersions[selectedVersionIx]?.comments ?? []}
           onAddComment={handleAddComment}
           onRemoveComment={handleRemoveComment}
+          onOptimize={handleOptimize}
         />
       </div>
 
